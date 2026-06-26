@@ -1,820 +1,645 @@
 <!DOCTYPE html>
-<html lang="zh-TW">
+<html lang="zh-TW" class="scroll-smooth">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>第二庫存 · 出庫掃碼</title>
-
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>百思特 APP 智慧物流控制台</title>
+  <!-- 導入 Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
-
+  <!-- 導入 Lucide 圖示庫 -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#f0fdf4', // 偏向健康活力的綠/藍色調
+              100: '#dcfce7',
+              500: '#10b981',
+              600: '#059669',
+              700: '#047857',
+            }
+          },
+          boxShadow: {
+            'glow-blue': '0 0 15px -3px rgba(59, 130, 246, 0.3)',
+            'glow-emerald': '0 0 15px -3px rgba(16, 185, 129, 0.3)',
+            'glow-purple': '0 0 15px -3px rgba(168, 85, 247, 0.3)',
+            'glow-rose': '0 0 15px -3px rgba(244, 63, 94, 0.3)',
+          }
+        }
+      }
+    }
+  </script>
   <style>
-    :root {
-      --bg:        #07091a;
-      --surface:   #0d1224;
-      --surface2:  #111827;
-      --border:    #1d2d4a;
-      --border2:   #243558;
-      --cyan:      #22d3ee;
-      --cyan-bg:   rgba(34,211,238,0.08);
-      --cyan-glow: rgba(34,211,238,0.35);
+    .transition-all-300 {
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     }
-
-    * { -webkit-tap-highlight-color: transparent; box-sizing: border-box; }
-    body { background: var(--bg); }
-
-    /* ── Scanner animations ─────────────────── */
-    @keyframes corner-pulse {
-      0%, 100% { opacity: 0.75; filter: drop-shadow(0 0 3px var(--cyan-glow)); }
-      50%       { opacity: 1;   filter: drop-shadow(0 0 9px var(--cyan-glow)); }
+    /* 網格背景，增加工業科技感 */
+    .bg-grid-pattern {
+      background-size: 30px 30px;
+      background-image: radial-gradient(circle, rgba(148, 163, 184, 0.05) 1px, transparent 1px);
     }
-    @keyframes beam-sweep {
-      0%   { top: 4%;  }
-      50%  { top: 87%; }
-      100% { top: 4%;  }
+    .dark .bg-grid-pattern {
+      background-size: 30px 30px;
+      background-image: radial-gradient(circle, rgba(51, 65, 85, 0.15) 1px, transparent 1px);
     }
-    @keyframes flash-out {
-      0%   { opacity: 0.45; }
-      100% { opacity: 0;    }
+    /* 卡片懸停發光漸變 */
+    .glow-card {
+      position: relative;
+      overflow: hidden;
     }
-
-    .scan-corner { animation: corner-pulse 2.4s ease-in-out infinite; }
-    .scan-beam   { animation: beam-sweep   2s   ease-in-out infinite; }
-    .do-flash    { animation: flash-out    0.35s ease-out   forwards; }
-
-    /* ── html5-qrcode overrides ─────────────── */
-    #reader video { object-fit: cover !important; }
-    #reader img,
-    #reader__scan_region img  { display: none !important; }
-    #reader__scan_region      { display: none !important; }
-    #reader__dashboard_section_csr button { display: none !important; }
-
-    /* ── Scrollbar ───────────────────────────── */
-    .thin-scroll::-webkit-scrollbar        { width: 3px; }
-    .thin-scroll::-webkit-scrollbar-track  { background: transparent; }
-    .thin-scroll::-webkit-scrollbar-thumb  { background: var(--border2); border-radius: 2px; }
-
-    /* ── Range input ─────────────────────────── */
-    input[type="range"] { accent-color: var(--cyan); }
-
-    /* ── Focus ring helper ───────────────────── */
-    .focus-cyan:focus { outline: none; border-color: var(--cyan) !important; box-shadow: 0 0 0 2px rgba(34,211,238,0.1); }
-
-    /* ── Reduced motion ──────────────────────── */
-    @media (prefers-reduced-motion: reduce) {
-      .scan-corner, .scan-beam { animation: none; }
+    .glow-card::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(circle at var(--mouse-x, 50%) var(--mouse-y, 50%), rgba(255, 255, 255, 0.08) 0%, transparent 50%);
+      opacity: 0;
+      transition: opacity 0.3s;
+      pointer-events: none;
+    }
+    .glow-card:hover::after {
+      opacity: 1;
     }
   </style>
 </head>
+<body class="bg-slate-50 text-slate-800 dark:bg-slate-950 dark:text-slate-100 min-h-screen flex flex-col bg-grid-pattern transition-colors duration-300">
 
-<body class="text-slate-100 min-h-screen flex flex-col font-sans select-none">
-
-  <!-- ══════ HEADER ══════ -->
-  <header style="background:var(--surface);border-bottom:1px solid var(--border);"
-          class="px-4 py-3 sticky top-0 z-50 shadow-xl">
-    <div class="max-w-md mx-auto flex items-center justify-between">
-
-      <div class="flex items-center gap-3">
-        <div class="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
-             style="background:linear-gradient(135deg,#0891b2,#22d3ee);box-shadow:0 2px 14px rgba(34,211,238,0.3);">
-          <i class="fa-solid fa-boxes-packing text-white text-sm"></i>
+  <!-- 頂部高階導覽列 -->
+  <header class="border-b border-slate-200/80 dark:border-slate-900 bg-white/70 dark:bg-slate-950/70 backdrop-blur-md sticky top-0 z-50 transition-all-300">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex justify-between items-center">
+      <!-- 左側：控制台品牌與守護犬狀態 -->
+      <div class="flex items-center gap-4">
+        <div class="relative group">
+          <div class="absolute -inset-0.5 bg-gradient-to-r from-emerald-500 to-teal-500 rounded-full blur opacity-40 group-hover:opacity-75 transition-all-300"></div>
+          <img id="header-avatar" src="" alt="Avatar" class="relative w-11 h-11 rounded-full border-2 border-white dark:border-slate-800 object-cover shadow-sm">
+          <!-- 🐶 憨吉線上狀態燈 -->
+          <span class="absolute bottom-0 right-0 w-3.5 h-3.5 bg-emerald-500 border-2 border-white dark:border-slate-950 rounded-full"></span>
         </div>
         <div>
-          <h1 class="text-sm font-bold tracking-tight text-white leading-tight">第二庫存出庫系統</h1>
-          <p class="text-[10px] leading-none mt-0.5" style="color:var(--cyan);">掃碼 · 快取對照 · 批次確認</p>
+          <div class="flex items-center gap-2">
+            <h1 id="header-title" class="font-bold text-lg text-slate-900 dark:text-white leading-none">載入中...</h1>
+            <span class="inline-flex items-center px-1.5 py-0.5 text-[10px] font-semibold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-400 rounded-md border border-emerald-200/50 dark:border-emerald-800/30">
+              <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse mr-1"></span>
+              系統連線正常
+            </span>
+          </div>
+          <div class="flex items-center gap-1.5 mt-1">
+            <i data-lucide="sparkles" class="w-3.5 h-3.5 text-amber-500"></i>
+            <p id="header-subtitle" class="text-xs text-slate-500 dark:text-slate-400 font-medium">載入中...</p>
+          </div>
         </div>
       </div>
-
-      <button id="connection-status" onclick="fetchInventoryCache(true)"
-              class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[10px] font-medium cursor-pointer transition-colors"
-              style="background:rgba(251,191,36,0.1);color:#fbbf24;">
-        <span id="status-dot" class="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse"></span>
-        <span id="status-text">初始化中</span>
-      </button>
-
+      
+      <!-- 右側按鈕：深色模式 & 快速鍵說明 -->
+      <div class="flex items-center gap-2">
+        <button id="theme-toggle" class="p-2.5 rounded-xl bg-slate-100 hover:bg-slate-200/80 dark:bg-slate-900 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition-colors border border-slate-200/50 dark:border-slate-800" title="切換主題">
+          <i data-lucide="sun" id="sun-icon" class="hidden w-5 h-5"></i>
+          <i data-lucide="moon" id="moon-icon" class="w-5 h-5"></i>
+        </button>
+      </div>
     </div>
   </header>
 
-  <!-- ══════ MAIN ══════ -->
-  <main class="flex-1 max-w-md w-full mx-auto p-3 pb-28 space-y-3">
-
-    <!-- 庫存同步狀態條 -->
-    <div style="background:var(--surface);border:1px solid var(--border);"
-         class="rounded-2xl px-4 py-2.5 flex items-center justify-between gap-3">
-      <div class="flex items-center gap-2 min-w-0 flex-1 text-xs">
-        <i class="fa-solid fa-database shrink-0" style="color:var(--cyan);font-size:11px;"></i>
-        <span id="cache-status-label" class="text-slate-400 truncate">正在連線下載庫存對照表...</span>
+  <!-- 主視覺區：加入智慧數據面板的氛圍 -->
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 pt-10 pb-16 w-full flex-grow">
+    
+    <!-- 憨吉對話框與標題區 -->
+    <div class="relative max-w-4xl mx-auto text-center mb-10">
+      <!-- 憨吉小氣泡 -->
+      <div class="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300 text-xs font-semibold mb-4 border border-amber-200/60 dark:border-amber-900/30 shadow-sm animate-bounce">
+        <span>🐶 憨吉：「今天也要打起精神，清點順暢喔！」</span>
       </div>
-      <button onclick="fetchInventoryCache(true)"
-              style="background:var(--border);color:var(--cyan);"
-              class="shrink-0 text-[10px] px-2.5 py-1 rounded-lg transition active:scale-95 whitespace-nowrap">
-        <i class="fa-solid fa-arrows-rotate mr-1"></i>重整
+      
+      <h2 id="main-title" class="text-4xl md:text-5xl font-black tracking-tight mb-3 bg-gradient-to-r from-emerald-600 via-teal-500 to-blue-600 bg-clip-text text-transparent">
+        百思特 APP 智慧物流控制台
+      </h2>
+      <p id="main-desc" class="text-slate-500 dark:text-slate-400 text-base md:text-lg max-w-xl mx-auto">
+        專為百思特物流現場打造的輕量化行動工作站。
+      </p>
+    </div>
+
+    <!-- 📊 快速數據儀表板 (統計各狀態 APP 數量) -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 max-w-5xl mx-auto mb-10">
+      <div class="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200/60 dark:border-slate-800/80 shadow-sm flex items-center gap-3">
+        <div class="p-2.5 rounded-xl bg-blue-50 text-blue-600 dark:bg-blue-950/50 dark:text-blue-400">
+          <i data-lucide="arrow-down-left" class="w-5 h-5"></i>
+        </div>
+        <div>
+          <span class="text-xs text-slate-400 dark:text-slate-500 block">進貨工具</span>
+          <span id="stat-incoming" class="text-lg font-bold text-slate-800 dark:text-slate-200">-</span>
+        </div>
+      </div>
+      <div class="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200/60 dark:border-slate-800/80 shadow-sm flex items-center gap-3">
+        <div class="p-2.5 rounded-xl bg-emerald-50 text-emerald-600 dark:bg-emerald-950/50 dark:text-emerald-400">
+          <i data-lucide="arrow-up-right" class="w-5 h-5"></i>
+        </div>
+        <div>
+          <span class="text-xs text-slate-400 dark:text-slate-500 block">出貨工具</span>
+          <span id="stat-outgoing" class="text-lg font-bold text-slate-800 dark:text-slate-200">-</span>
+        </div>
+      </div>
+      <div class="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200/60 dark:border-slate-800/80 shadow-sm flex items-center gap-3">
+        <div class="p-2.5 rounded-xl bg-rose-50 text-rose-600 dark:bg-rose-950/50 dark:text-rose-400">
+          <i data-lucide="package-minus" class="w-5 h-5"></i>
+        </div>
+        <div>
+          <span class="text-xs text-slate-400 dark:text-slate-500 block">退貨工具</span>
+          <span id="stat-returns" class="text-lg font-bold text-slate-800 dark:text-slate-200">-</span>
+        </div>
+      </div>
+      <div class="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200/60 dark:border-slate-800/80 shadow-sm flex items-center gap-3">
+        <div class="p-2.5 rounded-xl bg-purple-50 text-purple-600 dark:bg-purple-950/50 dark:text-purple-400">
+          <i data-lucide="warehouse" class="w-5 h-5"></i>
+        </div>
+        <div>
+          <span class="text-xs text-slate-400 dark:text-slate-500 block">倉儲與系統</span>
+          <span id="stat-storage" class="text-lg font-bold text-slate-800 dark:text-slate-200">-</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 搜尋與分類控制列 -->
+    <div class="bg-white/80 dark:bg-slate-900/80 backdrop-blur-md p-4 rounded-3xl shadow-sm border border-slate-200/60 dark:border-slate-800/80 mb-10 flex flex-col lg:flex-row gap-4 items-center justify-between transition-all-300 max-w-5xl mx-auto">
+      <!-- 搜尋框 -->
+      <div class="relative w-full lg:w-96">
+        <span class="absolute inset-y-0 left-0 flex items-center pl-3.5 text-slate-400 pointer-events-none">
+          <i data-lucide="search" class="w-5 h-5"></i>
+        </span>
+        <input type="text" id="search-input" placeholder="輸入關鍵字（例如：退貨、標籤、點貨）..." class="w-full pl-11 pr-4 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm transition-all-300">
+      </div>
+
+      <!-- 分類快篩 -->
+      <div id="category-filters" class="flex flex-wrap gap-1.5 w-full lg:w-auto justify-start lg:justify-end">
+        <!-- 分類按鈕會插在這裡 -->
+      </div>
+    </div>
+
+    <!-- 工作流/分區排列主容器 -->
+    <div id="apps-container" class="space-y-12 max-w-5xl mx-auto">
+      <!-- 動態工作流分區，或單一篩選網格，將由 JS 渲染在此 -->
+    </div>
+
+    <!-- 查無結果的提示 -->
+    <div id="no-results" class="hidden text-center py-20 max-w-xl mx-auto bg-white dark:bg-slate-900 rounded-3xl border border-dashed border-slate-200 dark:border-slate-800">
+      <div class="inline-flex p-4 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-600 mb-4">
+        <i data-lucide="package-search" class="w-12 h-12"></i>
+      </div>
+      <h3 class="text-lg font-bold text-slate-700 dark:text-slate-300">找不到相關的作業程式</h3>
+      <p class="text-slate-500 dark:text-slate-400 text-sm mt-1">請嘗試輸入其他關鍵字或點擊下方「全部」重置。</p>
+      <button onclick="resetFilters()" class="mt-4 px-4 py-2 bg-emerald-500 text-white rounded-xl text-xs font-semibold shadow-md shadow-emerald-500/10 hover:bg-emerald-600 transition-colors">
+        重設篩選
       </button>
     </div>
-
-    <!-- API 設定（折疊） -->
-    <div style="background:var(--surface);border:1px solid var(--border);" class="rounded-2xl p-4">
-      <div class="flex items-center justify-between cursor-pointer" onclick="toggleApiSettings()">
-        <span class="text-xs font-semibold text-slate-300">
-          <i class="fa-solid fa-link mr-2" style="color:var(--cyan);"></i>連線設定 (GAS 網址)
-        </span>
-        <i id="api-chevron" class="fa-solid fa-chevron-down text-slate-500 text-xs transition-transform duration-200"></i>
-      </div>
-      <div id="api-config-body" class="hidden mt-3 space-y-2">
-        <label class="block text-[10px] text-slate-500">Google Apps Script 部署網址：</label>
-        <input type="text" id="gas-url"
-               class="focus-cyan w-full rounded-xl px-3 py-2 text-xs border transition-all"
-               style="background:var(--bg);border-color:var(--border);color:#e2e8f0;"
-               placeholder="https://script.google.com/macros/s/.../exec"
-               onchange="saveGasUrl()">
-        <p class="text-[10px] text-amber-500/80">
-          <i class="fa-solid fa-lock mr-1"></i>網址安全儲存於本機 LocalStorage，不會上傳。
-        </p>
-      </div>
-    </div>
-
-    <!-- ── 掃描主區塊 ── -->
-    <div style="background:var(--surface);border:1px solid var(--border);" class="rounded-2xl p-3 space-y-3">
-
-      <!-- 相機視窗 -->
-      <div class="relative w-full aspect-square rounded-2xl overflow-hidden"
-           style="background:#000;border:2px solid var(--border);">
-
-        <div id="reader" class="w-full h-full"></div>
-
-        <!-- 成功掃碼閃光 -->
-        <div id="scan-flash" class="absolute inset-0 pointer-events-none z-20"
-             style="background:rgba(52,211,153,0);"></div>
-
-        <!-- 相機內 Toast -->
-        <div id="camera-toast"
-             class="absolute top-3 left-1/2 -translate-x-1/2 rounded-xl text-[11px] font-bold z-30 pointer-events-none flex items-center gap-1.5 px-3 py-2 whitespace-nowrap max-w-[88%] justify-center"
-             style="opacity:0;transition:opacity 0.2s;"></div>
-
-        <!-- 掃描框覆蓋層 -->
-        <div id="scan-overlay" class="absolute inset-0 pointer-events-none z-10">
-          <!-- 暗角 -->
-          <div class="absolute inset-0"
-               style="box-shadow:inset 0 0 0 50px rgba(0,0,0,0.58);border-radius:inherit;"></div>
-          <!-- 中央掃描框 -->
-          <div class="absolute inset-0 flex items-center justify-center">
-            <div class="relative" style="width:70%;height:70%;">
-              <!-- 四角定位線 -->
-              <div class="absolute scan-corner" style="top:-2px;left:-2px;width:28px;height:28px;
-                   border-top:3px solid var(--cyan);border-left:3px solid var(--cyan);border-radius:5px 0 0 0;"></div>
-              <div class="absolute scan-corner" style="top:-2px;right:-2px;width:28px;height:28px;
-                   border-top:3px solid var(--cyan);border-right:3px solid var(--cyan);border-radius:0 5px 0 0;"></div>
-              <div class="absolute scan-corner" style="bottom:-2px;left:-2px;width:28px;height:28px;
-                   border-bottom:3px solid var(--cyan);border-left:3px solid var(--cyan);border-radius:0 0 0 5px;"></div>
-              <div class="absolute scan-corner" style="bottom:-2px;right:-2px;width:28px;height:28px;
-                   border-bottom:3px solid var(--cyan);border-right:3px solid var(--cyan);border-radius:0 0 5px 0;"></div>
-              <!-- 掃描光束 -->
-              <div class="scan-beam absolute left-0 right-0 h-8 pointer-events-none"
-                   style="background:linear-gradient(to bottom,transparent,rgba(34,211,238,0.55) 50%,transparent);"></div>
-            </div>
-          </div>
-        </div>
-
-        <!-- 相機關閉佔位 -->
-        <div id="camera-placeholder"
-             class="absolute inset-0 z-20 flex flex-col items-center justify-center text-center p-6"
-             style="background:var(--bg);">
-          <div class="w-16 h-16 rounded-2xl flex items-center justify-center mb-4" style="background:var(--surface2);">
-            <i class="fa-solid fa-camera text-2xl" style="color:var(--border2);"></i>
-          </div>
-          <p class="text-sm text-slate-500 mb-5">點擊啟動相機掃描</p>
-          <button onclick="startScanning()"
-                  class="font-semibold py-2.5 px-8 rounded-full text-sm text-white transition active:scale-95"
-                  style="background:linear-gradient(135deg,#0891b2,#22d3ee);box-shadow:0 4px 18px rgba(34,211,238,0.3);">
-            <i class="fa-solid fa-camera mr-2"></i>開啟鏡頭
-          </button>
-        </div>
-      </div>
-
-      <!-- 縮放滑桿 -->
-      <div id="zoom-container" class="hidden px-1">
-        <div class="flex items-center gap-2 px-3 py-2 rounded-xl"
-             style="background:var(--bg);border:1px solid var(--border);">
-          <i class="fa-solid fa-magnifying-glass shrink-0 text-slate-500 text-[10px]"></i>
-          <span class="text-slate-500 whitespace-nowrap text-[10px]">縮放</span>
-          <input type="range" id="zoom-slider" min="1" max="5" step="0.1" value="1"
-                 class="flex-1 h-1.5 rounded-full appearance-none cursor-pointer"
-                 style="background:var(--border);"
-                 oninput="applyZoom(this.value)">
-          <span id="zoom-value" class="font-mono text-[10px] w-8 text-right" style="color:var(--cyan);">1.0x</span>
-        </div>
-      </div>
-
-      <!-- 操作按鈕列 -->
-      <div class="flex items-center justify-between px-1">
-        <div class="flex gap-2">
-          <button id="torch-btn" onclick="toggleTorch()" disabled title="手電筒"
-                  class="h-11 w-11 rounded-full flex items-center justify-center transition active:scale-90 disabled:opacity-30"
-                  style="background:var(--surface2);border:1px solid var(--border);">
-            <i class="fa-solid fa-lightbulb text-slate-400"></i>
-          </button>
-          <button onclick="switchCamera()" title="切換鏡頭"
-                  class="h-11 w-11 rounded-full flex items-center justify-center transition active:scale-90"
-                  style="background:var(--surface2);border:1px solid var(--border);">
-            <i class="fa-solid fa-camera-rotate text-slate-400"></i>
-          </button>
-        </div>
-        <button id="scan-toggle-btn" onclick="stopScanning()"
-                class="text-xs px-4 py-2 rounded-full font-medium transition active:scale-95"
-                style="display:none;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.25);color:#fca5a5;">
-          <i class="fa-solid fa-stop mr-1.5"></i>關閉鏡頭
-        </button>
-      </div>
-    </div>
-
-    <!-- 手動 / 掃碼槍 輸入 -->
-    <div style="background:var(--surface);border:1px solid var(--border);" class="rounded-2xl p-4 space-y-2.5">
-      <label class="block text-[10px] font-semibold tracking-widest uppercase text-slate-500">
-        <i class="fa-solid fa-keyboard mr-1.5"></i>手動輸入 · 外接掃碼槍
-      </label>
-      <div class="flex gap-2">
-        <input type="text" id="manual-code-input"
-               class="focus-cyan flex-1 rounded-xl px-3 py-2.5 text-sm border transition-all"
-               style="background:var(--bg);border-color:var(--border);color:#e2e8f0;"
-               placeholder="輸入貨號，或掃碼槍對準..."
-               onkeydown="handleManualInputKeyDown(event)">
-        <button onclick="submitManualInput()"
-                class="px-4 py-2.5 rounded-xl text-sm font-bold text-white transition active:scale-95 shrink-0"
-                style="background:linear-gradient(135deg,#0891b2,#22d3ee);box-shadow:0 2px 10px rgba(34,211,238,0.2);">
-          <i class="fa-solid fa-plus"></i>
-        </button>
-      </div>
-      <p class="text-[10px] text-slate-600">輸入後按 Enter 可直接送出</p>
-    </div>
-
-    <!-- 待出庫清單 -->
-    <div style="background:var(--surface);border:1px solid var(--border);" class="rounded-2xl p-4 space-y-3">
-      <div class="flex items-center justify-between">
-        <div class="flex items-center gap-2">
-          <span class="text-sm font-bold text-slate-200">待出庫清單</span>
-          <span id="list-counter"
-                class="text-[10px] font-bold px-2 py-0.5 rounded-full"
-                style="background:var(--cyan-bg);color:var(--cyan);">0 筆</span>
-        </div>
-        <button onclick="clearPendingList()"
-                class="text-[10px] text-slate-600 hover:text-rose-400 transition px-2 py-1 rounded-lg active:scale-95">
-          <i class="fa-solid fa-trash-can mr-1"></i>清空
-        </button>
-      </div>
-
-      <div id="pending-list-container" class="space-y-2 max-h-64 overflow-y-auto thin-scroll">
-        <div id="empty-list-placeholder" class="text-center py-8 text-slate-600 text-xs">
-          <i class="fa-solid fa-barcode text-3xl block mb-3 text-slate-700"></i>
-          掃描商品 QR Code 或在上方輸入貨號
-        </div>
-      </div>
-    </div>
-
   </main>
 
-  <!-- ══════ 底部確認欄 ══════ -->
-  <div class="fixed bottom-0 left-0 right-0 z-40 p-3 pt-4"
-       style="background:linear-gradient(to top,var(--bg) 70%,transparent);backdrop-filter:blur(10px);">
-    <div class="max-w-md mx-auto">
-      <button id="checkout-btn" onclick="submitCheckout()" disabled
-              class="w-full font-bold py-4 rounded-2xl text-sm transition active:scale-95 flex items-center justify-center gap-2 disabled:cursor-not-allowed">
-        <i class="fa-solid fa-circle-check"></i>
-        <span>請先掃描或輸入商品</span>
-      </button>
+  <!-- 頁尾 -->
+  <footer class="mt-auto border-t border-slate-200 dark:border-slate-900 bg-white dark:bg-slate-950 py-8 transition-colors duration-300">
+    <div class="max-w-7xl mx-auto px-4 text-center">
+      <div class="flex justify-center gap-6 mb-4 text-slate-400 dark:text-slate-600">
+        <div class="flex items-center gap-1.5 text-xs">
+          <i data-lucide="shield-check" class="w-4 h-4 text-emerald-500"></i> SSL 安全連線已啟用
+        </div>
+        <div class="flex items-center gap-1.5 text-xs">
+          <i data-lucide="smartphone" class="w-4 h-4 text-emerald-500"></i> 支援手持平板 PDA
+        </div>
+      </div>
+      <p class="text-xs text-slate-400 dark:text-slate-500 leading-relaxed" id="footer-text">
+        載入中...
+      </p>
     </div>
-  </div>
+  </footer>
 
-  <!-- ══════ SCRIPT ══════ -->
+  <!-- ========================================== -->
+  <!--               核心設定區                    -->
+  <!-- ========================================== -->
   <script>
-    // ── State ──────────────────────────────────────────────────────────────────
-    let html5QrCode       = null;
-    let isScanning        = false;
-    let currentFacingMode = "environment";
-    let isTorchOn         = false;
-    let inventoryCache    = {};
-    let isCacheLoading    = false;
-    let pendingItems      = [];
+    const CONFIG = {
+      // 網站基本資訊
+      siteName: "百思特 APP 智慧物流控制台",
+      siteSubtitle: "現場作業輕量化行動工作站",
+      
+      // 個人資料 / 現場守護犬
+      profile: {
+        name: "百思特現場中台",
+        bio: "守護犬 憨吉 與您共同維護倉儲進出貨安全",
+        avatar: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTTcPt6eCMw8GY1-sx8QBLHsPsCfDrpkwiMmw&s"
+      },
 
-    // ⚡ Scan cooldown — same code won't retrigger within 1.5s (eliminates callback spam)
-    let lastScannedCode = '';
-    let lastScanTime    = 0;
-    const SCAN_COOLDOWN_MS = 1500;
+      // 分類清單 (固定依照流程排列)
+      categories: ["全部", "進貨", "出貨", "退貨", "倉儲", "系統"],
 
-    const defaultGasUrl = "https://script.google.com/macros/s/AKfycbyzEG3tnuSb1SoGc2TDZ6T5ZGwH_AaE7Wr0OzrAc73PmT_I5RvxYMhi48fL8WM_peHt/exec";
-
-    // ── Web Audio API ──────────────────────────────────────────────────────────
-    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-
-    function playSound(type) {
-      try {
-        const osc = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
-        osc.connect(gain);
-        gain.connect(audioCtx.destination);
-
-        if (type === 'success') {
-          osc.frequency.setValueAtTime(880, audioCtx.currentTime);
-          gain.gain.setValueAtTime(0.09, audioCtx.currentTime);
-          osc.start();
-          gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.15);
-          osc.stop(audioCtx.currentTime + 0.15);
-        } else if (type === 'error') {
-          osc.frequency.setValueAtTime(220, audioCtx.currentTime);
-          gain.gain.setValueAtTime(0.12, audioCtx.currentTime);
-          osc.start();
-          gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.28);
-          osc.stop(audioCtx.currentTime + 0.28);
-        } else if (type === 'checkout') {
-          [523.25, 659.25, 783.99].forEach((freq, i) => {
-            const o = audioCtx.createOscillator();
-            const g = audioCtx.createGain();
-            o.connect(g); g.connect(audioCtx.destination);
-            const t = audioCtx.currentTime + i * 0.1;
-            o.frequency.setValueAtTime(freq, t);
-            g.gain.setValueAtTime(0.07, t);
-            o.start(t);
-            g.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
-            o.stop(t + 0.15);
-          });
+      // 定義各工作流程（分類）的標題、副標題與主題色彩，讓界面能做結構化區分！
+      flowSettings: {
+        "進貨": {
+          title: "📥 進貨作業區 (Incoming Logistics)",
+          desc: "供應商入庫、點貨、進貨包裹查核工具",
+          bg: "from-blue-500/10 to-transparent",
+          border: "border-blue-500/20 dark:border-blue-500/10",
+          iconColor: "text-blue-500 dark:text-blue-400"
+        },
+        "出貨": {
+          title: "📤 出貨作業區 (Outgoing Logistics)",
+          desc: "訂單揀貨、理貨、包裹出庫追蹤系統",
+          bg: "from-emerald-500/10 to-transparent",
+          border: "border-emerald-500/20 dark:border-emerald-500/10",
+          iconColor: "text-emerald-500 dark:text-emerald-400"
+        },
+        "退貨": {
+          title: "🔄 退貨作業區 (Returns Management)",
+          desc: "客退包裹清點、拆包錄影、瑕疵品歸倉控制台",
+          bg: "from-rose-500/10 to-transparent",
+          border: "border-rose-500/20 dark:border-rose-500/10",
+          iconColor: "text-rose-500 dark:text-rose-400"
+        },
+        "倉儲": {
+          title: "📦 倉儲系統區 (Storage & Inventory)",
+          desc: "儲位調整、標籤列印、條碼查詢與第二庫存清除作業",
+          bg: "from-purple-500/10 to-transparent",
+          border: "border-purple-500/20 dark:border-purple-500/10",
+          iconColor: "text-purple-500 dark:text-purple-400"
+        },
+        "系統": {
+          title: "⚙️ 基礎與系統工具 (System Tools)",
+          desc: "外部連結、預留功能與核心設定檔管理",
+          bg: "from-slate-500/10 to-transparent",
+          border: "border-slate-500/20 dark:border-slate-500/10",
+          iconColor: "text-slate-500 dark:text-slate-400"
         }
-      } catch(e) {}
-    }
+      },
 
-    // ── Init ───────────────────────────────────────────────────────────────────
-    window.onload = function() {
-      let saved = localStorage.getItem('second_inventory_gas_url');
-      if (!saved || !saved.trim()) {
-        localStorage.setItem('second_inventory_gas_url', defaultGasUrl);
-        saved = defaultGasUrl;
+      // 所有的 App 連結
+      apps: [
+        {
+          title: "條碼查詢",
+          description: "原條碼查詢 APP。支援一維條碼、QR Code 檢索系統。",
+          url: "https://www.appsheet.com/start/eb48b959-0ed7-4f7c-b5e3-63be48a3b440",
+          icon: "scan-barcode", // 改用更符合物流的 scan-barcode
+          category: "倉儲",
+          color: "purple"
+        },
+        {
+          title: "點貨 APP",
+          description: "原點貨 APP。供應商進貨清點、數量覆核專用。",
+          url: "https://www.appsheet.com/start/6ba7ee62-7002-4666-b073-bf6cdee4d47b",
+          icon: "file-check",
+          category: "進貨",
+          color: "blue"
+        },
+        {
+          title: "籠車退貨包裹清點系統",
+          description: "幫助現場人員快速、批次清點大批籠車中的客退包裹。",
+          url: "https://bestx0114-dev.github.io/rollcartcheck/",
+          icon: "check-square",
+          category: "退貨",
+          color: "red"
+        },
+        {
+          title: "009退貨包裹清點作業",
+          description: "※ 注意：拆 009 箱包裹之前，請務必先通知現場印單人員配合。",
+          url: "https://bestx0114-dev.github.io/returns-scanner/",
+          icon: "package",
+          category: "退貨",
+          color: "red"
+        },
+        {
+          title: "標籤列印",
+          description: "支援條碼機快速印標。可自由切換自動或手動輸入列印。",
+          url: "https://bestx0114-dev.github.io/label-print/",
+          icon: "printer",
+          category: "倉儲",
+          color: "purple"
+        },
+        {
+          title: "移除第二庫存",
+          description: "批次管理工具。支援一鍵快速移除、清理多個無效的第二儲位資訊。",
+          url: "https://bestx0114-dev.github.io/second-storage-del/",
+          icon: "notebook-pen",
+          category: "倉儲",
+          color: "purple"
+        },
+        {
+          title: "拆009錄影",
+          description: "退貨錄影存證系統。上傳前請確認儲存路徑為【出貨錄影】資料夾。",
+          url: "https://bestx0114-dev.github.io/return-record/",
+          icon: "video", // 更精準的 icon
+          category: "退貨",
+          color: "red"
+        },
+        {
+          title: "現場出貨覆核 (預留功能)",
+          description: "未來計畫上線的出貨防呆掃描系統，敬請期待。",
+          url: "https://example.com",
+          icon: "shield-alert",
+          category: "出貨",
+          color: "green"
+        },
+        {
+          title: "預留欄位",
+          description: "預留供其他新增 APP 使用之測試按鈕連結。",
+          url: "https://example.com",
+          icon: "globe",
+          category: "系統",
+          color: "slate"
+        }
+      ]
+    };
+  </script>
+
+  <!-- ========================================== -->
+  <!--          網頁邏輯 (通常不需要修改)            -->
+  <!-- ========================================== -->
+  <script>
+    // 狀態管理
+    let currentCategory = "全部";
+    let searchQuery = "";
+
+    // DOM 節點
+    const headerAvatar = document.getElementById('header-avatar');
+    const headerTitle = document.getElementById('header-title');
+    const headerSubtitle = document.getElementById('header-subtitle');
+    const mainTitle = document.getElementById('main-title');
+    const mainDesc = document.getElementById('main-desc');
+    const footerText = document.getElementById('footer-text');
+    const categoryFiltersContainer = document.getElementById('category-filters');
+    const appsContainer = document.getElementById('apps-container');
+    const noResults = document.getElementById('no-results');
+    const searchInput = document.getElementById('search-input');
+    const themeToggleBtn = document.getElementById('theme-toggle');
+    const sunIcon = document.getElementById('sun-icon');
+    const moonIcon = document.getElementById('moon-icon');
+
+    // 質感主題色彩配置（支援懸停發光、高光與陰影）
+    const colorClasses = {
+      blue: {
+        border: 'hover:border-blue-500/70 dark:hover:border-blue-500/50 hover:shadow-glow-blue',
+        bg: 'bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400',
+        badge: 'bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300'
+      },
+      green: {
+        border: 'hover:border-emerald-500/70 dark:hover:border-emerald-500/50 hover:shadow-glow-emerald',
+        bg: 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400',
+        badge: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
+      },
+      purple: {
+        border: 'hover:border-purple-500/70 dark:hover:border-purple-500/50 hover:shadow-glow-purple',
+        bg: 'bg-purple-50 text-purple-600 dark:bg-purple-950/40 dark:text-purple-400',
+        badge: 'bg-purple-50 text-purple-700 dark:bg-purple-950 dark:text-purple-300'
+      },
+      red: {
+        border: 'hover:border-rose-500/70 dark:hover:border-rose-500/50 hover:shadow-glow-rose',
+        bg: 'bg-rose-50 text-rose-600 dark:bg-rose-950/40 dark:text-rose-400',
+        badge: 'bg-rose-50 text-rose-700 dark:bg-rose-950 dark:text-rose-300'
+      },
+      slate: {
+        border: 'hover:border-slate-500/70 dark:hover:border-slate-500/50',
+        bg: 'bg-slate-100 text-slate-600 dark:bg-slate-900/50 dark:text-slate-400',
+        badge: 'bg-slate-100 text-slate-700 dark:bg-slate-900 dark:text-slate-300'
       }
-      document.getElementById('gas-url').value = saved;
-      updateCheckoutButton();
-      fetchInventoryCache();
     };
 
-    // ── Inventory cache ────────────────────────────────────────────────────────
-    function fetchInventoryCache(isManual = false) {
-      const gasUrl = localStorage.getItem('second_inventory_gas_url');
-      if (!gasUrl || isCacheLoading) return;
-      isCacheLoading = true;
+    // 初始化網頁資訊與統計數據
+    function initInfo() {
+      headerAvatar.src = CONFIG.profile.avatar;
+      headerTitle.textContent = CONFIG.profile.name;
+      headerSubtitle.textContent = CONFIG.profile.bio;
+      mainTitle.textContent = CONFIG.siteName;
+      mainDesc.textContent = CONFIG.siteSubtitle;
+      footerText.innerHTML = `© ${new Date().getFullYear()} ${CONFIG.profile.name}. 本控制台由物流資訊部維護與開發。`;
 
-      const label = document.getElementById('cache-status-label');
-      label.innerHTML = '正在連線下載庫存對照表...';
-      label.className = 'text-slate-400 truncate animate-pulse';
-      updateSystemStatus('下載庫存表中...', 'processing');
-
-      fetch(gasUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: JSON.stringify({ action: 'fetchAll' })
-      })
-      .then(r => r.json())
-      .then(res => {
-        isCacheLoading = false;
-        label.className = 'text-slate-400 truncate';
-        if (res.status === 'success' && res.data) {
-          inventoryCache = res.data;
-          const n = Object.keys(inventoryCache).length;
-          label.innerHTML = `已同步 <span style="color:var(--cyan);" class="font-bold font-mono">${n}</span> 筆商品對照，本地極速查詢就緒`;
-          updateSystemStatus('極速查詢就緒', 'success');
-          if (isManual) { showToast(`同步完成，共 ${n} 筆`, 'success'); playSound('success'); }
-          reMatchPendingNames();
-        } else {
-          label.innerHTML = `<span class="text-rose-400"><i class="fa-solid fa-triangle-exclamation mr-1"></i>無法下載庫存表（試算表可能為空）</span>`;
-          updateSystemStatus('對照表下載失敗', 'error');
-        }
-      })
-      .catch(() => {
-        isCacheLoading = false;
-        label.className = 'text-slate-400 truncate';
-        label.innerHTML = `<span class="text-rose-400"><i class="fa-solid fa-triangle-exclamation mr-1"></i>網路異常，無法連線試算表</span>`;
-        updateSystemStatus('連線異常', 'error');
-      });
+      updateStats();
     }
 
-    function reMatchPendingNames() {
-      let changed = false;
-      pendingItems.forEach(item => {
-        if (item.status === 'loading') {
-          item.itemName = inventoryCache[item.itemCode] || '未登記過的商品';
-          item.status = 'success';
-          changed = true;
-        }
-      });
-      if (changed) renderPendingList();
+    // 計算各工作流程 APP 數量並更新看板
+    function updateStats() {
+      const getCount = (cat) => CONFIG.apps.filter(app => app.category === cat).length;
+      document.getElementById('stat-incoming').textContent = `${getCount('進貨')} 個`;
+      document.getElementById('stat-outgoing').textContent = `${getCount('出貨')} 個`;
+      document.getElementById('stat-returns').textContent = `${getCount('退貨')} 個`;
+      document.getElementById('stat-storage').textContent = `${getCount('倉儲') + getCount('系統')} 個`;
     }
 
-    // ── UI helpers ─────────────────────────────────────────────────────────────
-    function toggleApiSettings() {
-      const body    = document.getElementById('api-config-body');
-      const chevron = document.getElementById('api-chevron');
-      const opening = body.classList.toggle('hidden');
-      chevron.style.transform = opening ? 'rotate(0deg)' : 'rotate(180deg)';
-    }
-
-    function saveGasUrl() {
-      const url = document.getElementById('gas-url').value.trim();
-      localStorage.setItem('second_inventory_gas_url', url);
-      showToast('API 網址已儲存', 'success');
-    }
-
-    function updateSystemStatus(text, type) {
-      const btn  = document.getElementById('connection-status');
-      const dot  = document.getElementById('status-dot');
-      const span = document.getElementById('status-text');
-      span.innerText = text;
-
-      const map = {
-        error:      { bg: 'rgba(220,38,38,0.12)',   color: '#fca5a5', dot: '#f87171' },
-        processing: { bg: 'rgba(99,102,241,0.12)',  color: '#a5b4fc', dot: '#818cf8' },
-        success:    { bg: 'rgba(16,185,129,0.12)',  color: '#6ee7b7', dot: '#34d399' },
-      };
-      const s = map[type] || map.success;
-      btn.style.background = s.bg;
-      btn.style.color      = s.color;
-      dot.className        = 'h-1.5 w-1.5 rounded-full animate-pulse';
-      dot.style.background = s.dot;
-    }
-
-    // ── Camera ─────────────────────────────────────────────────────────────────
-    function startScanning() {
-      const gasUrl = localStorage.getItem('second_inventory_gas_url');
-      if (!gasUrl) {
-        alert('請先在「連線設定」中填入 Google Apps Script 部署網址！');
-        toggleApiSettings();
-        return;
-      }
-
-      document.getElementById('camera-placeholder').style.display = 'none';
-      document.getElementById('scan-toggle-btn').style.display    = 'block';
-
-      if (!html5QrCode) html5QrCode = new Html5Qrcode("reader");
-
-      const config = {
-        fps: 30,
-        qrbox: (w, h) => ({ width: Math.floor(w * 0.70), height: Math.floor(h * 0.70) }),
-        aspectRatio: 1.0,
-
-        // ⚡ Skip mirror-image decode attempts — saves ~50% processing per frame
-        disableFlip: true,
-
-        // Only decode formats actually used; smaller set = faster per-frame decode
-        formatsToSupport: [
-          Html5QrcodeSupportedFormats.QR_CODE,
-          Html5QrcodeSupportedFormats.CODE_128,
-          Html5QrcodeSupportedFormats.EAN_13,
-        ],
-
-        // ⚡ Use native browser BarcodeDetector API when available (Android Chrome /
-        //    Samsung Browser) — hardware-accelerated, significantly faster than WASM
-        experimentalFeatures: {
-          useBarCodeDetectorIfSupported: true
-        }
-      };
-
-      html5QrCode.start(
-        { facingMode: currentFacingMode },
-        config,
-        onScanSuccess,
-        () => {}  // Silence per-frame failure callbacks
-      )
-      .then(() => {
-        isScanning = true;
-        setupCameraCapabilities();
-        updateSystemStatus('正在掃描商品', 'success');
-      })
-      .catch(err => {
-        console.error('相機啟動失敗:', err);
-        document.getElementById('camera-placeholder').style.display = 'flex';
-        document.getElementById('scan-toggle-btn').style.display    = 'none';
-        alert('無法啟動相機，請確認是否已授予相機權限，且必須在 HTTPS 安全協定下執行。');
-      });
-    }
-
-    function setupCameraCapabilities() {
-      if (!html5QrCode) return;
-      try {
-        const cap = html5QrCode.getRunningTrackCapabilities();
-        // Continuous autofocus
-        html5QrCode.applyVideoConstraints({
-          advanced: [{ focusMode: 'continuous' }]
-        }).catch(() => {});
-
-        // Torch button
-        document.getElementById('torch-btn').disabled = !cap.torch;
-
-        // Zoom slider
-        const zoomContainer = document.getElementById('zoom-container');
-        const slider        = document.getElementById('zoom-slider');
-        if (cap.zoom) {
-          zoomContainer.classList.remove('hidden');
-          slider.min  = cap.zoom.min  || 1;
-          slider.max  = cap.zoom.max  || 5;
-          slider.step = cap.zoom.step || 0.1;
-          const cur = html5QrCode.getRunningTrackSettings().zoom || 1;
-          slider.value = cur;
-          document.getElementById('zoom-value').innerText = parseFloat(cur).toFixed(1) + 'x';
-        } else {
-          zoomContainer.classList.add('hidden');
-        }
-      } catch(e) { console.warn('無法取得相機硬體設定:', e); }
-    }
-
-    function applyZoom(v) {
-      if (!html5QrCode || !isScanning) return;
-      html5QrCode.applyVideoConstraints({ advanced: [{ zoom: parseFloat(v) }] })
-        .then(() => { document.getElementById('zoom-value').innerText = parseFloat(v).toFixed(1) + 'x'; })
-        .catch(() => {});
-    }
-
-    function stopScanning() {
-      if (!html5QrCode || !isScanning) return;
-      html5QrCode.stop().then(() => {
-        isScanning = false;
-        isTorchOn  = false;
-        document.getElementById('camera-placeholder').style.display = 'flex';
-        document.getElementById('scan-toggle-btn').style.display    = 'none';
-        document.getElementById('torch-btn').disabled = true;
-        document.getElementById('zoom-container').classList.add('hidden');
-        updateSystemStatus('系統就緒', 'success');
-      }).catch(() => {});
-    }
-
-    function switchCamera() {
-      currentFacingMode = currentFacingMode === 'environment' ? 'user' : 'environment';
-      if (isScanning) html5QrCode.stop().then(startScanning);
-    }
-
-    function toggleTorch() {
-      if (!html5QrCode || !isScanning) return;
-      isTorchOn = !isTorchOn;
-      html5QrCode.applyVideoConstraints({ advanced: [{ torch: isTorchOn }] })
-        .then(() => {
-          const btn = document.getElementById('torch-btn');
-          const icon = btn.querySelector('i');
-          if (isTorchOn) {
-            btn.style.background   = '#f59e0b';
-            btn.style.borderColor  = '#fbbf24';
-            icon.className         = 'fa-solid fa-lightbulb text-slate-900';
-          } else {
-            btn.style.background   = 'var(--surface2)';
-            btn.style.borderColor  = 'var(--border)';
-            icon.className         = 'fa-solid fa-lightbulb text-slate-400';
-          }
-        }).catch(() => {});
-    }
-
-    // ── Scan success callback ──────────────────────────────────────────────────
-    function onScanSuccess(decodedText) {
-      const code = decodedText.trim();
-      if (!code) return;
-
-      // ⚡ Cooldown: suppress duplicate callbacks from consecutive frames
-      const now = Date.now();
-      if (code === lastScannedCode && (now - lastScanTime) < SCAN_COOLDOWN_MS) return;
-      lastScannedCode = code;
-      lastScanTime    = now;
-
-      // ⚡ Haptic feedback (Android / iOS with vibration support)
-      if (navigator.vibrate) navigator.vibrate(55);
-
-      processScannedCode(code);
-    }
-
-    // Green flash across the camera view on every successful scan
-    function triggerScanFlash() {
-      const el = document.getElementById('scan-flash');
-      if (!el) return;
-      el.classList.remove('do-flash');
-      el.style.background = 'rgba(52,211,153,0.42)';
-      void el.offsetWidth; // force reflow to restart animation
-      el.classList.add('do-flash');
-      el.addEventListener('animationend', () => {
-        el.style.background = 'rgba(52,211,153,0)';
-        el.classList.remove('do-flash');
-      }, { once: true });
-    }
-
-    // ── Camera overlay Toast ───────────────────────────────────────────────────
-    function showCameraToast(message, type = 'success') {
-      const el = document.getElementById('camera-toast');
-      if (!el) return;
-      clearTimeout(window._camToastTimer);
-
-      const ok = type === 'success';
-      el.style.background    = ok ? 'rgba(16,185,129,0.88)' : 'rgba(239,68,68,0.88)';
-      el.style.color         = '#fff';
-      el.style.backdropFilter= 'blur(6px)';
-      el.style.border        = ok ? '1px solid rgba(52,211,153,0.3)' : '1px solid rgba(239,68,68,0.3)';
-      el.innerHTML = ok
-        ? `<i class="fa-solid fa-circle-check text-xs"></i><span>已掃入: ${message}</span>`
-        : `<i class="fa-solid fa-circle-exclamation text-xs"></i><span>${message}</span>`;
-      el.style.opacity = '1';
-
-      window._camToastTimer = setTimeout(() => { el.style.opacity = '0'; }, 2000);
-    }
-
-    // ── Core logic ─────────────────────────────────────────────────────────────
-    function processScannedCode(itemCode) {
-      if (pendingItems.some(i => i.itemCode === itemCode)) {
-        playSound('error');
-        showCameraToast(`${itemCode} 已在清單中！`, 'error');
-        showToast(`貨號 ${itemCode} 已在待確認清單中！`, 'error');
-        return;
-      }
-      playSound('success');
-      triggerScanFlash();
-      showCameraToast(itemCode, 'success');
-      addItemToPending(itemCode);
-    }
-
-    function addItemToPending(itemCode) {
-      const id = 'item-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5);
-      let name = '未登記過的商品', status = 'success';
-
-      if (Object.keys(inventoryCache).length === 0) {
-        name = '正在查詢品名...'; status = 'loading';
-      } else if (inventoryCache[itemCode]) {
-        name = inventoryCache[itemCode];
-      }
-
-      pendingItems.push({ id, itemCode, itemName: name, status, timestamp: Date.now() });
-      renderPendingList();
-    }
-
-    function handleManualInputKeyDown(e) {
-      if (e.key === 'Enter') submitManualInput();
-    }
-
-    function submitManualInput() {
-      const el   = document.getElementById('manual-code-input');
-      const code = el.value.trim();
-      if (!code) { showToast('請輸入有效的貨號！', 'error'); return; }
-      processScannedCode(code);
-      el.value = '';
-      el.focus();
-    }
-
-    // ── Pending list ───────────────────────────────────────────────────────────
-    function removeItem(id) {
-      pendingItems = pendingItems.filter(i => i.id !== id);
-      renderPendingList();
-      playSound('error');
-    }
-
-    function clearPendingList() {
-      if (!pendingItems.length) return;
-      if (confirm('確定要清空所有待確認項目嗎？')) {
-        pendingItems = [];
-        renderPendingList();
-      }
-    }
-
-    function renderPendingList() {
-      const container = document.getElementById('pending-list-container');
-      document.getElementById('list-counter').innerText = `${pendingItems.length} 筆`;
-
-      if (!pendingItems.length) {
-        container.innerHTML = `
-          <div class="text-center py-8 text-slate-600 text-xs">
-            <i class="fa-solid fa-barcode text-3xl block mb-3 text-slate-700"></i>
-            掃描商品 QR Code 或在上方輸入貨號
-          </div>`;
-        updateCheckoutButton();
-        return;
-      }
-
-      const rows = [...pendingItems].reverse().map(item => {
-        let borderColor, nameColor, badge;
-
-        if (item.status === 'loading') {
-          borderColor = '#6366f1'; nameColor = '#94a3b8';
-          badge = `<span class="text-[9px] text-indigo-400 font-medium"><i class="fa-solid fa-spinner animate-spin mr-1 text-[8px]"></i>查詢中</span>`;
-        } else if (item.status === 'error') {
-          borderColor = '#f43f5e'; nameColor = '#fda4af';
-          badge = `<span class="text-[9px] text-rose-400 font-medium"><i class="fa-solid fa-triangle-exclamation mr-1 text-[8px]"></i>錯誤</span>`;
-        } else if (item.itemName === '未登記過的商品') {
-          borderColor = '#fbbf24'; nameColor = '#fde68a';
-          badge = `<span class="text-[9px] text-amber-400 font-medium"><i class="fa-solid fa-circle-question mr-1 text-[8px]"></i>未登記</span>`;
-        } else {
-          borderColor = '#22d3ee'; nameColor = '#e2e8f0';
-          badge = `<span class="text-[9px] font-medium" style="color:var(--cyan);"><i class="fa-solid fa-check mr-1 text-[8px]"></i>已尋獲</span>`;
-        }
-
-        return `
-          <div class="flex items-center gap-3 p-3 rounded-xl transition-all duration-150"
-               style="background:var(--bg);border-left:3px solid ${borderColor};">
-            <div class="flex-1 min-w-0">
-              <div class="flex items-center gap-2 mb-0.5">
-                <span class="font-mono font-bold text-xs text-white">${item.itemCode}</span>
-                ${badge}
-              </div>
-              <p class="text-sm font-medium truncate" style="color:${nameColor};">${item.itemName}</p>
-            </div>
-            <button onclick="removeItem('${item.id}')"
-                    class="h-8 w-8 flex items-center justify-center rounded-lg text-slate-600 hover:text-rose-400 transition active:scale-90 shrink-0"
-                    style="background:var(--surface2);">
-              <i class="fa-solid fa-xmark text-xs"></i>
-            </button>
-          </div>`;
-      }).join('');
-
-      container.innerHTML = rows;
-      updateCheckoutButton();
-    }
-
-    function updateCheckoutButton() {
-      const btn     = document.getElementById('checkout-btn');
-      const loading = pendingItems.some(i => i.status === 'loading');
-      const hasItems = pendingItems.length > 0;
-
-      if (hasItems && !loading) {
-        btn.disabled           = false;
-        btn.style.background   = 'linear-gradient(135deg,#059669,#10b981)';
-        btn.style.color        = '#fff';
-        btn.style.border       = 'none';
-        btn.style.boxShadow    = '0 4px 20px rgba(16,185,129,0.3)';
-        btn.innerHTML          = `<i class="fa-solid fa-circle-check text-base"></i><span>確認送出出庫 (${pendingItems.length} 筆)</span>`;
+    // 初始化深淺色主題
+    function initTheme() {
+      const savedTheme = localStorage.getItem('theme');
+      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      
+      if (savedTheme === 'dark' || (!savedTheme && prefersDark)) {
+        document.documentElement.classList.add('dark');
+        sunIcon.classList.remove('hidden');
+        moonIcon.classList.add('hidden');
       } else {
-        btn.disabled           = true;
-        btn.style.background   = 'var(--surface)';
-        btn.style.color        = '#475569';
-        btn.style.border       = '1px solid var(--border)';
-        btn.style.boxShadow    = 'none';
-        btn.innerHTML          = loading
-          ? `<i class="fa-solid fa-spinner animate-spin mr-1"></i><span>正在比對品名，請稍候...</span>`
-          : `<span>請先掃描或輸入商品</span>`;
+        document.documentElement.classList.remove('dark');
+        sunIcon.classList.add('hidden');
+        moonIcon.classList.remove('hidden');
       }
     }
 
-    // ── Submit checkout ────────────────────────────────────────────────────────
-    function submitCheckout() {
-      const gasUrl = localStorage.getItem('second_inventory_gas_url');
-      if (!gasUrl || !pendingItems.length) return;
+    // 主題切換按鈕事件
+    themeToggleBtn.addEventListener('click', () => {
+      const isDark = document.documentElement.classList.contains('dark');
+      if (isDark) {
+        document.documentElement.classList.remove('dark');
+        localStorage.setItem('theme', 'light');
+        sunIcon.classList.add('hidden');
+        moonIcon.classList.remove('hidden');
+      } else {
+        document.documentElement.classList.add('dark');
+        localStorage.setItem('theme', 'dark');
+        sunIcon.classList.remove('hidden');
+        moonIcon.classList.add('hidden');
+      }
+    });
 
-      const codes = pendingItems.map(i => i.itemCode);
-      if (!confirm(`確定要將這 ${pendingItems.length} 筆商品自第二庫存區出庫嗎？\n確認後將自試算表中整列刪除。`)) return;
+    // 重設篩選按鈕
+    function resetFilters() {
+      searchInput.value = '';
+      searchQuery = '';
+      currentCategory = '全部';
+      renderCategories();
+      renderApps();
+    }
 
-      updateSystemStatus('正在執行出庫刪除...', 'processing');
-
-      const btn = document.getElementById('checkout-btn');
-      btn.disabled         = true;
-      btn.style.background = 'var(--surface)';
-      btn.style.color      = '#94a3b8';
-      btn.style.border     = '1px solid var(--border)';
-      btn.style.boxShadow  = 'none';
-      btn.innerHTML        = `<i class="fa-solid fa-spinner animate-spin"></i><span>正在扣庫存，請勿關閉視窗...</span>`;
-
-      fetch(gasUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: JSON.stringify({ action: 'checkout', itemCodes: codes })
-      })
-      .then(r => r.json())
-      .then(data => {
-        if (data.status === 'success') {
-          playSound('checkout');
-          showToast(`出庫成功！${data.details}`, 'success');
-          pendingItems = [];
-          renderPendingList();
-          updateSystemStatus('出庫完成', 'success');
-          fetchInventoryCache();
+    // 渲染分類篩選按鈕
+    function renderCategories() {
+      categoryFiltersContainer.innerHTML = '';
+      CONFIG.categories.forEach(category => {
+        const button = document.createElement('button');
+        button.textContent = category;
+        button.className = 'px-4 py-2 text-xs md:text-sm font-semibold rounded-2xl transition-all-300 ';
+        
+        if (category === currentCategory) {
+          button.className += 'bg-emerald-500 text-white shadow-md shadow-emerald-500/20 border border-emerald-500';
         } else {
-          playSound('error');
-          alert('出庫失敗：' + data.message);
-          updateSystemStatus('出庫異常', 'error');
-          updateCheckoutButton();
+          button.className += 'bg-slate-50 dark:bg-slate-900/60 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800/80';
         }
-      })
-      .catch(() => {
-        playSound('error');
-        alert('出庫送出失敗，請檢查網路連線後再試一次！');
-        updateSystemStatus('連線異常', 'error');
-        updateCheckoutButton();
+
+        button.addEventListener('click', () => {
+          currentCategory = category;
+          renderCategories();
+          renderApps();
+        });
+
+        categoryFiltersContainer.appendChild(button);
       });
     }
 
-    // ── Global Toast ───────────────────────────────────────────────────────────
-    function showToast(message, type = 'success') {
-      document.querySelectorAll('.app-toast').forEach(t => t.remove());
-      const el = document.createElement('div');
-      const ok = type === 'success';
-      el.className = 'app-toast fixed bottom-24 left-1/2 -translate-x-1/2 px-4 py-3 rounded-2xl text-xs font-semibold shadow-2xl z-50 transition-opacity duration-500';
-      el.style.background    = ok ? 'rgba(16,185,129,0.92)' : 'rgba(239,68,68,0.92)';
-      el.style.color         = '#fff';
-      el.style.backdropFilter= 'blur(8px)';
-      el.style.border        = ok ? '1px solid rgba(52,211,153,0.3)' : '1px solid rgba(239,68,68,0.3)';
-      el.innerHTML = `<div class="flex items-center gap-2">
-        <i class="fa-solid ${ok ? 'fa-circle-check' : 'fa-triangle-exclamation'}"></i>
-        <span>${message}</span>
-      </div>`;
-      document.body.appendChild(el);
-      setTimeout(() => {
-        el.style.opacity = '0';
-        setTimeout(() => el.remove(), 500);
-      }, 3000);
+    // 輔助函式：讓搜尋字詞在標題中亮黃色高亮顯示
+    function highlightText(text, query) {
+      if (!query) return text;
+      const regex = new RegExp(`(${query})`, 'gi');
+      return text.replace(regex, `<mark class="bg-amber-100 text-slate-900 dark:bg-amber-400/80 dark:text-slate-950 px-0.5 rounded">$1</mark>`);
     }
+
+    // 產生一個 App 卡片 HTML
+    function createAppCard(app) {
+      const colorConfig = colorClasses[app.color] || colorClasses.blue;
+      const titleText = highlightText(app.title, searchQuery);
+      const descText = highlightText(app.description, searchQuery);
+      
+      return `
+        <a href="${app.url}" target="${app.url.startsWith('http') ? '_blank' : '_self'}"
+           class="group glow-card flex flex-col justify-between p-5 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/70 dark:border-slate-800/80 shadow-sm hover:shadow-md transition-all-300 hover:-translate-y-1 ${colorConfig.border}"
+           onmousemove="handleCardGlow(event, this)">
+          <div>
+            <div class="flex items-start justify-between mb-3.5">
+              <!-- 圖示邊框與背景 -->
+              <div class="p-3 rounded-xl ${colorConfig.bg} transition-colors border border-slate-100/50 dark:border-slate-800/50">
+                <i data-lucide="${app.icon || 'globe'}" class="w-5.5 h-5.5"></i>
+              </div>
+              <!-- 功能分類微標籤 -->
+              <span class="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider ${colorConfig.badge}">
+                ${app.category}
+              </span>
+            </div>
+            <!-- 標題與簡介 -->
+            <h3 class="text-base font-bold text-slate-800 dark:text-slate-100 group-hover:text-emerald-500 dark:group-hover:text-emerald-400 transition-colors flex items-center gap-1.5">
+              ${titleText}
+              <i data-lucide="arrow-up-right" class="w-4 h-4 opacity-0 group-hover:opacity-100 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-all-300"></i>
+            </h3>
+            <p class="text-xs text-slate-500 dark:text-slate-400 mt-2 line-clamp-3 leading-relaxed">
+              ${descText}
+            </p>
+          </div>
+          <!-- 底部快速指引 -->
+          <div class="mt-5 pt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-xs font-semibold text-slate-400 group-hover:text-emerald-500 transition-colors">
+            <span class="text-[10px] text-slate-400 dark:text-slate-500">
+              ${app.url.startsWith('http') ? '開展新分頁' : '內部應用'}
+            </span>
+            <div class="flex items-center gap-0.5 text-emerald-500 dark:text-emerald-400 opacity-0 group-hover:opacity-100 transition-all-300">
+              <span>立即啟動</span>
+              <i data-lucide="chevron-right" class="w-3.5 h-3.5"></i>
+            </div>
+          </div>
+        </a>
+      `;
+    }
+
+    // 動態卡片隨滑鼠移動產生高光特效
+    function handleCardGlow(e, card) {
+      const rect = card.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      card.style.setProperty('--mouse-x', `${x}px`);
+      card.style.setProperty('--mouse-y', `${y}px`);
+    }
+
+    // 渲染 App 清單 (核心重寫：支援分區和單一 grid)
+    function renderApps() {
+      appsContainer.innerHTML = '';
+      
+      // 先對 APP 進行過濾
+      const filteredApps = CONFIG.apps.filter(app => {
+        const matchesCategory = currentCategory === "全部" || app.category === currentCategory;
+        const matchesSearch = app.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
+                              app.description.toLowerCase().includes(searchQuery.toLowerCase());
+        return matchesCategory && matchesSearch;
+      });
+
+      // 是否無任何匹配結果
+      if (filteredApps.length === 0) {
+        appsContainer.classList.add('hidden');
+        noResults.classList.remove('hidden');
+        return;
+      } else {
+        appsContainer.classList.remove('hidden');
+        noResults.classList.add('hidden');
+      }
+
+      // 如果選擇「全部」且沒有搜尋字，則採用「工作流程（進/出/退/倉儲）大分區」進行排版！
+      if (currentCategory === "全部" && searchQuery === "") {
+        const categoriesInFlow = ["進貨", "出貨", "退貨", "倉儲", "系統"];
+        
+        categoriesInFlow.forEach(flowName => {
+          const flowApps = filteredApps.filter(app => app.category === flowName);
+          
+          // 如果該工作流底下目前沒有 app，則不顯示該區塊
+          if (flowApps.length === 0) return;
+          
+          const flowSetting = CONFIG.flowSettings[flowName] || CONFIG.flowSettings["系統"];
+          
+          const flowSection = document.createElement('section');
+          flowSection.className = `p-6 md:p-8 rounded-3xl bg-gradient-to-b ${flowSetting.bg} border ${flowSetting.border} shadow-sm space-y-6`;
+          
+          flowSection.innerHTML = `
+            <div class="flex flex-col md:flex-row md:items-center justify-between gap-2 pb-4 border-b border-slate-200/50 dark:border-slate-800/80">
+              <div>
+                <h3 class="text-lg md:text-xl font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+                  ${flowSetting.title}
+                </h3>
+                <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">${flowSetting.desc}</p>
+              </div>
+              <span class="inline-flex self-start md:self-center items-center px-3 py-1 text-xs font-semibold rounded-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm text-slate-500">
+                ${flowApps.length} 個應用
+              </span>
+            </div>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              ${flowApps.map(app => createAppCard(app)).join('')}
+            </div>
+          `;
+          appsContainer.appendChild(flowSection);
+        });
+      } else {
+        // 如果是特定分類，或有輸入搜尋關鍵字，則顯示一般精簡 Grid 視圖，方便快速尋找
+        const gridContainer = document.createElement('div');
+        gridContainer.className = 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pt-2';
+        gridContainer.innerHTML = filteredApps.map(app => createAppCard(app)).join('');
+        
+        // 如果是特定分類，多一個分區大標頭
+        if (currentCategory !== "全部") {
+          const flowSetting = CONFIG.flowSettings[currentCategory] || CONFIG.flowSettings["系統"];
+          const flowHeader = document.createElement('div');
+          flowHeader.className = 'mb-6 pb-4 border-b border-slate-200 dark:border-slate-800';
+          flowHeader.innerHTML = `
+            <h3 class="text-xl font-bold text-slate-800 dark:text-slate-100">${flowSetting ? flowSetting.title : currentCategory}</h3>
+            <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">${flowSetting ? flowSetting.desc : ''}</p>
+          `;
+          appsContainer.appendChild(flowHeader);
+        }
+        
+        appsContainer.appendChild(gridContainer);
+      }
+
+      // 重新渲染 Lucide 圖示
+      lucide.createIcons();
+    }
+
+    // 搜尋輸入框監聽
+    searchInput.addEventListener('input', (e) => {
+      searchQuery = e.target.value;
+      renderApps();
+    });
+
+    // 視窗載入完成初始化
+    window.onload = function () {
+      initTheme();
+      initInfo();
+      renderCategories();
+      renderApps();
+      lucide.createIcons();
+    };
   </script>
 </body>
 </html>
