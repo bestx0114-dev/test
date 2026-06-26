@@ -1,1 +1,820 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>第二庫存 · 出庫掃碼</title>
 
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
+
+  <style>
+    :root {
+      --bg:        #07091a;
+      --surface:   #0d1224;
+      --surface2:  #111827;
+      --border:    #1d2d4a;
+      --border2:   #243558;
+      --cyan:      #22d3ee;
+      --cyan-bg:   rgba(34,211,238,0.08);
+      --cyan-glow: rgba(34,211,238,0.35);
+    }
+
+    * { -webkit-tap-highlight-color: transparent; box-sizing: border-box; }
+    body { background: var(--bg); }
+
+    /* ── Scanner animations ─────────────────── */
+    @keyframes corner-pulse {
+      0%, 100% { opacity: 0.75; filter: drop-shadow(0 0 3px var(--cyan-glow)); }
+      50%       { opacity: 1;   filter: drop-shadow(0 0 9px var(--cyan-glow)); }
+    }
+    @keyframes beam-sweep {
+      0%   { top: 4%;  }
+      50%  { top: 87%; }
+      100% { top: 4%;  }
+    }
+    @keyframes flash-out {
+      0%   { opacity: 0.45; }
+      100% { opacity: 0;    }
+    }
+
+    .scan-corner { animation: corner-pulse 2.4s ease-in-out infinite; }
+    .scan-beam   { animation: beam-sweep   2s   ease-in-out infinite; }
+    .do-flash    { animation: flash-out    0.35s ease-out   forwards; }
+
+    /* ── html5-qrcode overrides ─────────────── */
+    #reader video { object-fit: cover !important; }
+    #reader img,
+    #reader__scan_region img  { display: none !important; }
+    #reader__scan_region      { display: none !important; }
+    #reader__dashboard_section_csr button { display: none !important; }
+
+    /* ── Scrollbar ───────────────────────────── */
+    .thin-scroll::-webkit-scrollbar        { width: 3px; }
+    .thin-scroll::-webkit-scrollbar-track  { background: transparent; }
+    .thin-scroll::-webkit-scrollbar-thumb  { background: var(--border2); border-radius: 2px; }
+
+    /* ── Range input ─────────────────────────── */
+    input[type="range"] { accent-color: var(--cyan); }
+
+    /* ── Focus ring helper ───────────────────── */
+    .focus-cyan:focus { outline: none; border-color: var(--cyan) !important; box-shadow: 0 0 0 2px rgba(34,211,238,0.1); }
+
+    /* ── Reduced motion ──────────────────────── */
+    @media (prefers-reduced-motion: reduce) {
+      .scan-corner, .scan-beam { animation: none; }
+    }
+  </style>
+</head>
+
+<body class="text-slate-100 min-h-screen flex flex-col font-sans select-none">
+
+  <!-- ══════ HEADER ══════ -->
+  <header style="background:var(--surface);border-bottom:1px solid var(--border);"
+          class="px-4 py-3 sticky top-0 z-50 shadow-xl">
+    <div class="max-w-md mx-auto flex items-center justify-between">
+
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
+             style="background:linear-gradient(135deg,#0891b2,#22d3ee);box-shadow:0 2px 14px rgba(34,211,238,0.3);">
+          <i class="fa-solid fa-boxes-packing text-white text-sm"></i>
+        </div>
+        <div>
+          <h1 class="text-sm font-bold tracking-tight text-white leading-tight">第二庫存出庫系統</h1>
+          <p class="text-[10px] leading-none mt-0.5" style="color:var(--cyan);">掃碼 · 快取對照 · 批次確認</p>
+        </div>
+      </div>
+
+      <button id="connection-status" onclick="fetchInventoryCache(true)"
+              class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[10px] font-medium cursor-pointer transition-colors"
+              style="background:rgba(251,191,36,0.1);color:#fbbf24;">
+        <span id="status-dot" class="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse"></span>
+        <span id="status-text">初始化中</span>
+      </button>
+
+    </div>
+  </header>
+
+  <!-- ══════ MAIN ══════ -->
+  <main class="flex-1 max-w-md w-full mx-auto p-3 pb-28 space-y-3">
+
+    <!-- 庫存同步狀態條 -->
+    <div style="background:var(--surface);border:1px solid var(--border);"
+         class="rounded-2xl px-4 py-2.5 flex items-center justify-between gap-3">
+      <div class="flex items-center gap-2 min-w-0 flex-1 text-xs">
+        <i class="fa-solid fa-database shrink-0" style="color:var(--cyan);font-size:11px;"></i>
+        <span id="cache-status-label" class="text-slate-400 truncate">正在連線下載庫存對照表...</span>
+      </div>
+      <button onclick="fetchInventoryCache(true)"
+              style="background:var(--border);color:var(--cyan);"
+              class="shrink-0 text-[10px] px-2.5 py-1 rounded-lg transition active:scale-95 whitespace-nowrap">
+        <i class="fa-solid fa-arrows-rotate mr-1"></i>重整
+      </button>
+    </div>
+
+    <!-- API 設定（折疊） -->
+    <div style="background:var(--surface);border:1px solid var(--border);" class="rounded-2xl p-4">
+      <div class="flex items-center justify-between cursor-pointer" onclick="toggleApiSettings()">
+        <span class="text-xs font-semibold text-slate-300">
+          <i class="fa-solid fa-link mr-2" style="color:var(--cyan);"></i>連線設定 (GAS 網址)
+        </span>
+        <i id="api-chevron" class="fa-solid fa-chevron-down text-slate-500 text-xs transition-transform duration-200"></i>
+      </div>
+      <div id="api-config-body" class="hidden mt-3 space-y-2">
+        <label class="block text-[10px] text-slate-500">Google Apps Script 部署網址：</label>
+        <input type="text" id="gas-url"
+               class="focus-cyan w-full rounded-xl px-3 py-2 text-xs border transition-all"
+               style="background:var(--bg);border-color:var(--border);color:#e2e8f0;"
+               placeholder="https://script.google.com/macros/s/.../exec"
+               onchange="saveGasUrl()">
+        <p class="text-[10px] text-amber-500/80">
+          <i class="fa-solid fa-lock mr-1"></i>網址安全儲存於本機 LocalStorage，不會上傳。
+        </p>
+      </div>
+    </div>
+
+    <!-- ── 掃描主區塊 ── -->
+    <div style="background:var(--surface);border:1px solid var(--border);" class="rounded-2xl p-3 space-y-3">
+
+      <!-- 相機視窗 -->
+      <div class="relative w-full aspect-square rounded-2xl overflow-hidden"
+           style="background:#000;border:2px solid var(--border);">
+
+        <div id="reader" class="w-full h-full"></div>
+
+        <!-- 成功掃碼閃光 -->
+        <div id="scan-flash" class="absolute inset-0 pointer-events-none z-20"
+             style="background:rgba(52,211,153,0);"></div>
+
+        <!-- 相機內 Toast -->
+        <div id="camera-toast"
+             class="absolute top-3 left-1/2 -translate-x-1/2 rounded-xl text-[11px] font-bold z-30 pointer-events-none flex items-center gap-1.5 px-3 py-2 whitespace-nowrap max-w-[88%] justify-center"
+             style="opacity:0;transition:opacity 0.2s;"></div>
+
+        <!-- 掃描框覆蓋層 -->
+        <div id="scan-overlay" class="absolute inset-0 pointer-events-none z-10">
+          <!-- 暗角 -->
+          <div class="absolute inset-0"
+               style="box-shadow:inset 0 0 0 50px rgba(0,0,0,0.58);border-radius:inherit;"></div>
+          <!-- 中央掃描框 -->
+          <div class="absolute inset-0 flex items-center justify-center">
+            <div class="relative" style="width:70%;height:70%;">
+              <!-- 四角定位線 -->
+              <div class="absolute scan-corner" style="top:-2px;left:-2px;width:28px;height:28px;
+                   border-top:3px solid var(--cyan);border-left:3px solid var(--cyan);border-radius:5px 0 0 0;"></div>
+              <div class="absolute scan-corner" style="top:-2px;right:-2px;width:28px;height:28px;
+                   border-top:3px solid var(--cyan);border-right:3px solid var(--cyan);border-radius:0 5px 0 0;"></div>
+              <div class="absolute scan-corner" style="bottom:-2px;left:-2px;width:28px;height:28px;
+                   border-bottom:3px solid var(--cyan);border-left:3px solid var(--cyan);border-radius:0 0 0 5px;"></div>
+              <div class="absolute scan-corner" style="bottom:-2px;right:-2px;width:28px;height:28px;
+                   border-bottom:3px solid var(--cyan);border-right:3px solid var(--cyan);border-radius:0 0 5px 0;"></div>
+              <!-- 掃描光束 -->
+              <div class="scan-beam absolute left-0 right-0 h-8 pointer-events-none"
+                   style="background:linear-gradient(to bottom,transparent,rgba(34,211,238,0.55) 50%,transparent);"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 相機關閉佔位 -->
+        <div id="camera-placeholder"
+             class="absolute inset-0 z-20 flex flex-col items-center justify-center text-center p-6"
+             style="background:var(--bg);">
+          <div class="w-16 h-16 rounded-2xl flex items-center justify-center mb-4" style="background:var(--surface2);">
+            <i class="fa-solid fa-camera text-2xl" style="color:var(--border2);"></i>
+          </div>
+          <p class="text-sm text-slate-500 mb-5">點擊啟動相機掃描</p>
+          <button onclick="startScanning()"
+                  class="font-semibold py-2.5 px-8 rounded-full text-sm text-white transition active:scale-95"
+                  style="background:linear-gradient(135deg,#0891b2,#22d3ee);box-shadow:0 4px 18px rgba(34,211,238,0.3);">
+            <i class="fa-solid fa-camera mr-2"></i>開啟鏡頭
+          </button>
+        </div>
+      </div>
+
+      <!-- 縮放滑桿 -->
+      <div id="zoom-container" class="hidden px-1">
+        <div class="flex items-center gap-2 px-3 py-2 rounded-xl"
+             style="background:var(--bg);border:1px solid var(--border);">
+          <i class="fa-solid fa-magnifying-glass shrink-0 text-slate-500 text-[10px]"></i>
+          <span class="text-slate-500 whitespace-nowrap text-[10px]">縮放</span>
+          <input type="range" id="zoom-slider" min="1" max="5" step="0.1" value="1"
+                 class="flex-1 h-1.5 rounded-full appearance-none cursor-pointer"
+                 style="background:var(--border);"
+                 oninput="applyZoom(this.value)">
+          <span id="zoom-value" class="font-mono text-[10px] w-8 text-right" style="color:var(--cyan);">1.0x</span>
+        </div>
+      </div>
+
+      <!-- 操作按鈕列 -->
+      <div class="flex items-center justify-between px-1">
+        <div class="flex gap-2">
+          <button id="torch-btn" onclick="toggleTorch()" disabled title="手電筒"
+                  class="h-11 w-11 rounded-full flex items-center justify-center transition active:scale-90 disabled:opacity-30"
+                  style="background:var(--surface2);border:1px solid var(--border);">
+            <i class="fa-solid fa-lightbulb text-slate-400"></i>
+          </button>
+          <button onclick="switchCamera()" title="切換鏡頭"
+                  class="h-11 w-11 rounded-full flex items-center justify-center transition active:scale-90"
+                  style="background:var(--surface2);border:1px solid var(--border);">
+            <i class="fa-solid fa-camera-rotate text-slate-400"></i>
+          </button>
+        </div>
+        <button id="scan-toggle-btn" onclick="stopScanning()"
+                class="text-xs px-4 py-2 rounded-full font-medium transition active:scale-95"
+                style="display:none;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.25);color:#fca5a5;">
+          <i class="fa-solid fa-stop mr-1.5"></i>關閉鏡頭
+        </button>
+      </div>
+    </div>
+
+    <!-- 手動 / 掃碼槍 輸入 -->
+    <div style="background:var(--surface);border:1px solid var(--border);" class="rounded-2xl p-4 space-y-2.5">
+      <label class="block text-[10px] font-semibold tracking-widest uppercase text-slate-500">
+        <i class="fa-solid fa-keyboard mr-1.5"></i>手動輸入 · 外接掃碼槍
+      </label>
+      <div class="flex gap-2">
+        <input type="text" id="manual-code-input"
+               class="focus-cyan flex-1 rounded-xl px-3 py-2.5 text-sm border transition-all"
+               style="background:var(--bg);border-color:var(--border);color:#e2e8f0;"
+               placeholder="輸入貨號，或掃碼槍對準..."
+               onkeydown="handleManualInputKeyDown(event)">
+        <button onclick="submitManualInput()"
+                class="px-4 py-2.5 rounded-xl text-sm font-bold text-white transition active:scale-95 shrink-0"
+                style="background:linear-gradient(135deg,#0891b2,#22d3ee);box-shadow:0 2px 10px rgba(34,211,238,0.2);">
+          <i class="fa-solid fa-plus"></i>
+        </button>
+      </div>
+      <p class="text-[10px] text-slate-600">輸入後按 Enter 可直接送出</p>
+    </div>
+
+    <!-- 待出庫清單 -->
+    <div style="background:var(--surface);border:1px solid var(--border);" class="rounded-2xl p-4 space-y-3">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <span class="text-sm font-bold text-slate-200">待出庫清單</span>
+          <span id="list-counter"
+                class="text-[10px] font-bold px-2 py-0.5 rounded-full"
+                style="background:var(--cyan-bg);color:var(--cyan);">0 筆</span>
+        </div>
+        <button onclick="clearPendingList()"
+                class="text-[10px] text-slate-600 hover:text-rose-400 transition px-2 py-1 rounded-lg active:scale-95">
+          <i class="fa-solid fa-trash-can mr-1"></i>清空
+        </button>
+      </div>
+
+      <div id="pending-list-container" class="space-y-2 max-h-64 overflow-y-auto thin-scroll">
+        <div id="empty-list-placeholder" class="text-center py-8 text-slate-600 text-xs">
+          <i class="fa-solid fa-barcode text-3xl block mb-3 text-slate-700"></i>
+          掃描商品 QR Code 或在上方輸入貨號
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- ══════ 底部確認欄 ══════ -->
+  <div class="fixed bottom-0 left-0 right-0 z-40 p-3 pt-4"
+       style="background:linear-gradient(to top,var(--bg) 70%,transparent);backdrop-filter:blur(10px);">
+    <div class="max-w-md mx-auto">
+      <button id="checkout-btn" onclick="submitCheckout()" disabled
+              class="w-full font-bold py-4 rounded-2xl text-sm transition active:scale-95 flex items-center justify-center gap-2 disabled:cursor-not-allowed">
+        <i class="fa-solid fa-circle-check"></i>
+        <span>請先掃描或輸入商品</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- ══════ SCRIPT ══════ -->
+  <script>
+    // ── State ──────────────────────────────────────────────────────────────────
+    let html5QrCode       = null;
+    let isScanning        = false;
+    let currentFacingMode = "environment";
+    let isTorchOn         = false;
+    let inventoryCache    = {};
+    let isCacheLoading    = false;
+    let pendingItems      = [];
+
+    // ⚡ Scan cooldown — same code won't retrigger within 1.5s (eliminates callback spam)
+    let lastScannedCode = '';
+    let lastScanTime    = 0;
+    const SCAN_COOLDOWN_MS = 1500;
+
+    const defaultGasUrl = "https://script.google.com/macros/s/AKfycbyzEG3tnuSb1SoGc2TDZ6T5ZGwH_AaE7Wr0OzrAc73PmT_I5RvxYMhi48fL8WM_peHt/exec";
+
+    // ── Web Audio API ──────────────────────────────────────────────────────────
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+    function playSound(type) {
+      try {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+
+        if (type === 'success') {
+          osc.frequency.setValueAtTime(880, audioCtx.currentTime);
+          gain.gain.setValueAtTime(0.09, audioCtx.currentTime);
+          osc.start();
+          gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.15);
+          osc.stop(audioCtx.currentTime + 0.15);
+        } else if (type === 'error') {
+          osc.frequency.setValueAtTime(220, audioCtx.currentTime);
+          gain.gain.setValueAtTime(0.12, audioCtx.currentTime);
+          osc.start();
+          gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.28);
+          osc.stop(audioCtx.currentTime + 0.28);
+        } else if (type === 'checkout') {
+          [523.25, 659.25, 783.99].forEach((freq, i) => {
+            const o = audioCtx.createOscillator();
+            const g = audioCtx.createGain();
+            o.connect(g); g.connect(audioCtx.destination);
+            const t = audioCtx.currentTime + i * 0.1;
+            o.frequency.setValueAtTime(freq, t);
+            g.gain.setValueAtTime(0.07, t);
+            o.start(t);
+            g.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
+            o.stop(t + 0.15);
+          });
+        }
+      } catch(e) {}
+    }
+
+    // ── Init ───────────────────────────────────────────────────────────────────
+    window.onload = function() {
+      let saved = localStorage.getItem('second_inventory_gas_url');
+      if (!saved || !saved.trim()) {
+        localStorage.setItem('second_inventory_gas_url', defaultGasUrl);
+        saved = defaultGasUrl;
+      }
+      document.getElementById('gas-url').value = saved;
+      updateCheckoutButton();
+      fetchInventoryCache();
+    };
+
+    // ── Inventory cache ────────────────────────────────────────────────────────
+    function fetchInventoryCache(isManual = false) {
+      const gasUrl = localStorage.getItem('second_inventory_gas_url');
+      if (!gasUrl || isCacheLoading) return;
+      isCacheLoading = true;
+
+      const label = document.getElementById('cache-status-label');
+      label.innerHTML = '正在連線下載庫存對照表...';
+      label.className = 'text-slate-400 truncate animate-pulse';
+      updateSystemStatus('下載庫存表中...', 'processing');
+
+      fetch(gasUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: JSON.stringify({ action: 'fetchAll' })
+      })
+      .then(r => r.json())
+      .then(res => {
+        isCacheLoading = false;
+        label.className = 'text-slate-400 truncate';
+        if (res.status === 'success' && res.data) {
+          inventoryCache = res.data;
+          const n = Object.keys(inventoryCache).length;
+          label.innerHTML = `已同步 <span style="color:var(--cyan);" class="font-bold font-mono">${n}</span> 筆商品對照，本地極速查詢就緒`;
+          updateSystemStatus('極速查詢就緒', 'success');
+          if (isManual) { showToast(`同步完成，共 ${n} 筆`, 'success'); playSound('success'); }
+          reMatchPendingNames();
+        } else {
+          label.innerHTML = `<span class="text-rose-400"><i class="fa-solid fa-triangle-exclamation mr-1"></i>無法下載庫存表（試算表可能為空）</span>`;
+          updateSystemStatus('對照表下載失敗', 'error');
+        }
+      })
+      .catch(() => {
+        isCacheLoading = false;
+        label.className = 'text-slate-400 truncate';
+        label.innerHTML = `<span class="text-rose-400"><i class="fa-solid fa-triangle-exclamation mr-1"></i>網路異常，無法連線試算表</span>`;
+        updateSystemStatus('連線異常', 'error');
+      });
+    }
+
+    function reMatchPendingNames() {
+      let changed = false;
+      pendingItems.forEach(item => {
+        if (item.status === 'loading') {
+          item.itemName = inventoryCache[item.itemCode] || '未登記過的商品';
+          item.status = 'success';
+          changed = true;
+        }
+      });
+      if (changed) renderPendingList();
+    }
+
+    // ── UI helpers ─────────────────────────────────────────────────────────────
+    function toggleApiSettings() {
+      const body    = document.getElementById('api-config-body');
+      const chevron = document.getElementById('api-chevron');
+      const opening = body.classList.toggle('hidden');
+      chevron.style.transform = opening ? 'rotate(0deg)' : 'rotate(180deg)';
+    }
+
+    function saveGasUrl() {
+      const url = document.getElementById('gas-url').value.trim();
+      localStorage.setItem('second_inventory_gas_url', url);
+      showToast('API 網址已儲存', 'success');
+    }
+
+    function updateSystemStatus(text, type) {
+      const btn  = document.getElementById('connection-status');
+      const dot  = document.getElementById('status-dot');
+      const span = document.getElementById('status-text');
+      span.innerText = text;
+
+      const map = {
+        error:      { bg: 'rgba(220,38,38,0.12)',   color: '#fca5a5', dot: '#f87171' },
+        processing: { bg: 'rgba(99,102,241,0.12)',  color: '#a5b4fc', dot: '#818cf8' },
+        success:    { bg: 'rgba(16,185,129,0.12)',  color: '#6ee7b7', dot: '#34d399' },
+      };
+      const s = map[type] || map.success;
+      btn.style.background = s.bg;
+      btn.style.color      = s.color;
+      dot.className        = 'h-1.5 w-1.5 rounded-full animate-pulse';
+      dot.style.background = s.dot;
+    }
+
+    // ── Camera ─────────────────────────────────────────────────────────────────
+    function startScanning() {
+      const gasUrl = localStorage.getItem('second_inventory_gas_url');
+      if (!gasUrl) {
+        alert('請先在「連線設定」中填入 Google Apps Script 部署網址！');
+        toggleApiSettings();
+        return;
+      }
+
+      document.getElementById('camera-placeholder').style.display = 'none';
+      document.getElementById('scan-toggle-btn').style.display    = 'block';
+
+      if (!html5QrCode) html5QrCode = new Html5Qrcode("reader");
+
+      const config = {
+        fps: 30,
+        qrbox: (w, h) => ({ width: Math.floor(w * 0.70), height: Math.floor(h * 0.70) }),
+        aspectRatio: 1.0,
+
+        // ⚡ Skip mirror-image decode attempts — saves ~50% processing per frame
+        disableFlip: true,
+
+        // Only decode formats actually used; smaller set = faster per-frame decode
+        formatsToSupport: [
+          Html5QrcodeSupportedFormats.QR_CODE,
+          Html5QrcodeSupportedFormats.CODE_128,
+          Html5QrcodeSupportedFormats.EAN_13,
+        ],
+
+        // ⚡ Use native browser BarcodeDetector API when available (Android Chrome /
+        //    Samsung Browser) — hardware-accelerated, significantly faster than WASM
+        experimentalFeatures: {
+          useBarCodeDetectorIfSupported: true
+        }
+      };
+
+      html5QrCode.start(
+        { facingMode: currentFacingMode },
+        config,
+        onScanSuccess,
+        () => {}  // Silence per-frame failure callbacks
+      )
+      .then(() => {
+        isScanning = true;
+        setupCameraCapabilities();
+        updateSystemStatus('正在掃描商品', 'success');
+      })
+      .catch(err => {
+        console.error('相機啟動失敗:', err);
+        document.getElementById('camera-placeholder').style.display = 'flex';
+        document.getElementById('scan-toggle-btn').style.display    = 'none';
+        alert('無法啟動相機，請確認是否已授予相機權限，且必須在 HTTPS 安全協定下執行。');
+      });
+    }
+
+    function setupCameraCapabilities() {
+      if (!html5QrCode) return;
+      try {
+        const cap = html5QrCode.getRunningTrackCapabilities();
+        // Continuous autofocus
+        html5QrCode.applyVideoConstraints({
+          advanced: [{ focusMode: 'continuous' }]
+        }).catch(() => {});
+
+        // Torch button
+        document.getElementById('torch-btn').disabled = !cap.torch;
+
+        // Zoom slider
+        const zoomContainer = document.getElementById('zoom-container');
+        const slider        = document.getElementById('zoom-slider');
+        if (cap.zoom) {
+          zoomContainer.classList.remove('hidden');
+          slider.min  = cap.zoom.min  || 1;
+          slider.max  = cap.zoom.max  || 5;
+          slider.step = cap.zoom.step || 0.1;
+          const cur = html5QrCode.getRunningTrackSettings().zoom || 1;
+          slider.value = cur;
+          document.getElementById('zoom-value').innerText = parseFloat(cur).toFixed(1) + 'x';
+        } else {
+          zoomContainer.classList.add('hidden');
+        }
+      } catch(e) { console.warn('無法取得相機硬體設定:', e); }
+    }
+
+    function applyZoom(v) {
+      if (!html5QrCode || !isScanning) return;
+      html5QrCode.applyVideoConstraints({ advanced: [{ zoom: parseFloat(v) }] })
+        .then(() => { document.getElementById('zoom-value').innerText = parseFloat(v).toFixed(1) + 'x'; })
+        .catch(() => {});
+    }
+
+    function stopScanning() {
+      if (!html5QrCode || !isScanning) return;
+      html5QrCode.stop().then(() => {
+        isScanning = false;
+        isTorchOn  = false;
+        document.getElementById('camera-placeholder').style.display = 'flex';
+        document.getElementById('scan-toggle-btn').style.display    = 'none';
+        document.getElementById('torch-btn').disabled = true;
+        document.getElementById('zoom-container').classList.add('hidden');
+        updateSystemStatus('系統就緒', 'success');
+      }).catch(() => {});
+    }
+
+    function switchCamera() {
+      currentFacingMode = currentFacingMode === 'environment' ? 'user' : 'environment';
+      if (isScanning) html5QrCode.stop().then(startScanning);
+    }
+
+    function toggleTorch() {
+      if (!html5QrCode || !isScanning) return;
+      isTorchOn = !isTorchOn;
+      html5QrCode.applyVideoConstraints({ advanced: [{ torch: isTorchOn }] })
+        .then(() => {
+          const btn = document.getElementById('torch-btn');
+          const icon = btn.querySelector('i');
+          if (isTorchOn) {
+            btn.style.background   = '#f59e0b';
+            btn.style.borderColor  = '#fbbf24';
+            icon.className         = 'fa-solid fa-lightbulb text-slate-900';
+          } else {
+            btn.style.background   = 'var(--surface2)';
+            btn.style.borderColor  = 'var(--border)';
+            icon.className         = 'fa-solid fa-lightbulb text-slate-400';
+          }
+        }).catch(() => {});
+    }
+
+    // ── Scan success callback ──────────────────────────────────────────────────
+    function onScanSuccess(decodedText) {
+      const code = decodedText.trim();
+      if (!code) return;
+
+      // ⚡ Cooldown: suppress duplicate callbacks from consecutive frames
+      const now = Date.now();
+      if (code === lastScannedCode && (now - lastScanTime) < SCAN_COOLDOWN_MS) return;
+      lastScannedCode = code;
+      lastScanTime    = now;
+
+      // ⚡ Haptic feedback (Android / iOS with vibration support)
+      if (navigator.vibrate) navigator.vibrate(55);
+
+      processScannedCode(code);
+    }
+
+    // Green flash across the camera view on every successful scan
+    function triggerScanFlash() {
+      const el = document.getElementById('scan-flash');
+      if (!el) return;
+      el.classList.remove('do-flash');
+      el.style.background = 'rgba(52,211,153,0.42)';
+      void el.offsetWidth; // force reflow to restart animation
+      el.classList.add('do-flash');
+      el.addEventListener('animationend', () => {
+        el.style.background = 'rgba(52,211,153,0)';
+        el.classList.remove('do-flash');
+      }, { once: true });
+    }
+
+    // ── Camera overlay Toast ───────────────────────────────────────────────────
+    function showCameraToast(message, type = 'success') {
+      const el = document.getElementById('camera-toast');
+      if (!el) return;
+      clearTimeout(window._camToastTimer);
+
+      const ok = type === 'success';
+      el.style.background    = ok ? 'rgba(16,185,129,0.88)' : 'rgba(239,68,68,0.88)';
+      el.style.color         = '#fff';
+      el.style.backdropFilter= 'blur(6px)';
+      el.style.border        = ok ? '1px solid rgba(52,211,153,0.3)' : '1px solid rgba(239,68,68,0.3)';
+      el.innerHTML = ok
+        ? `<i class="fa-solid fa-circle-check text-xs"></i><span>已掃入: ${message}</span>`
+        : `<i class="fa-solid fa-circle-exclamation text-xs"></i><span>${message}</span>`;
+      el.style.opacity = '1';
+
+      window._camToastTimer = setTimeout(() => { el.style.opacity = '0'; }, 2000);
+    }
+
+    // ── Core logic ─────────────────────────────────────────────────────────────
+    function processScannedCode(itemCode) {
+      if (pendingItems.some(i => i.itemCode === itemCode)) {
+        playSound('error');
+        showCameraToast(`${itemCode} 已在清單中！`, 'error');
+        showToast(`貨號 ${itemCode} 已在待確認清單中！`, 'error');
+        return;
+      }
+      playSound('success');
+      triggerScanFlash();
+      showCameraToast(itemCode, 'success');
+      addItemToPending(itemCode);
+    }
+
+    function addItemToPending(itemCode) {
+      const id = 'item-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5);
+      let name = '未登記過的商品', status = 'success';
+
+      if (Object.keys(inventoryCache).length === 0) {
+        name = '正在查詢品名...'; status = 'loading';
+      } else if (inventoryCache[itemCode]) {
+        name = inventoryCache[itemCode];
+      }
+
+      pendingItems.push({ id, itemCode, itemName: name, status, timestamp: Date.now() });
+      renderPendingList();
+    }
+
+    function handleManualInputKeyDown(e) {
+      if (e.key === 'Enter') submitManualInput();
+    }
+
+    function submitManualInput() {
+      const el   = document.getElementById('manual-code-input');
+      const code = el.value.trim();
+      if (!code) { showToast('請輸入有效的貨號！', 'error'); return; }
+      processScannedCode(code);
+      el.value = '';
+      el.focus();
+    }
+
+    // ── Pending list ───────────────────────────────────────────────────────────
+    function removeItem(id) {
+      pendingItems = pendingItems.filter(i => i.id !== id);
+      renderPendingList();
+      playSound('error');
+    }
+
+    function clearPendingList() {
+      if (!pendingItems.length) return;
+      if (confirm('確定要清空所有待確認項目嗎？')) {
+        pendingItems = [];
+        renderPendingList();
+      }
+    }
+
+    function renderPendingList() {
+      const container = document.getElementById('pending-list-container');
+      document.getElementById('list-counter').innerText = `${pendingItems.length} 筆`;
+
+      if (!pendingItems.length) {
+        container.innerHTML = `
+          <div class="text-center py-8 text-slate-600 text-xs">
+            <i class="fa-solid fa-barcode text-3xl block mb-3 text-slate-700"></i>
+            掃描商品 QR Code 或在上方輸入貨號
+          </div>`;
+        updateCheckoutButton();
+        return;
+      }
+
+      const rows = [...pendingItems].reverse().map(item => {
+        let borderColor, nameColor, badge;
+
+        if (item.status === 'loading') {
+          borderColor = '#6366f1'; nameColor = '#94a3b8';
+          badge = `<span class="text-[9px] text-indigo-400 font-medium"><i class="fa-solid fa-spinner animate-spin mr-1 text-[8px]"></i>查詢中</span>`;
+        } else if (item.status === 'error') {
+          borderColor = '#f43f5e'; nameColor = '#fda4af';
+          badge = `<span class="text-[9px] text-rose-400 font-medium"><i class="fa-solid fa-triangle-exclamation mr-1 text-[8px]"></i>錯誤</span>`;
+        } else if (item.itemName === '未登記過的商品') {
+          borderColor = '#fbbf24'; nameColor = '#fde68a';
+          badge = `<span class="text-[9px] text-amber-400 font-medium"><i class="fa-solid fa-circle-question mr-1 text-[8px]"></i>未登記</span>`;
+        } else {
+          borderColor = '#22d3ee'; nameColor = '#e2e8f0';
+          badge = `<span class="text-[9px] font-medium" style="color:var(--cyan);"><i class="fa-solid fa-check mr-1 text-[8px]"></i>已尋獲</span>`;
+        }
+
+        return `
+          <div class="flex items-center gap-3 p-3 rounded-xl transition-all duration-150"
+               style="background:var(--bg);border-left:3px solid ${borderColor};">
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-2 mb-0.5">
+                <span class="font-mono font-bold text-xs text-white">${item.itemCode}</span>
+                ${badge}
+              </div>
+              <p class="text-sm font-medium truncate" style="color:${nameColor};">${item.itemName}</p>
+            </div>
+            <button onclick="removeItem('${item.id}')"
+                    class="h-8 w-8 flex items-center justify-center rounded-lg text-slate-600 hover:text-rose-400 transition active:scale-90 shrink-0"
+                    style="background:var(--surface2);">
+              <i class="fa-solid fa-xmark text-xs"></i>
+            </button>
+          </div>`;
+      }).join('');
+
+      container.innerHTML = rows;
+      updateCheckoutButton();
+    }
+
+    function updateCheckoutButton() {
+      const btn     = document.getElementById('checkout-btn');
+      const loading = pendingItems.some(i => i.status === 'loading');
+      const hasItems = pendingItems.length > 0;
+
+      if (hasItems && !loading) {
+        btn.disabled           = false;
+        btn.style.background   = 'linear-gradient(135deg,#059669,#10b981)';
+        btn.style.color        = '#fff';
+        btn.style.border       = 'none';
+        btn.style.boxShadow    = '0 4px 20px rgba(16,185,129,0.3)';
+        btn.innerHTML          = `<i class="fa-solid fa-circle-check text-base"></i><span>確認送出出庫 (${pendingItems.length} 筆)</span>`;
+      } else {
+        btn.disabled           = true;
+        btn.style.background   = 'var(--surface)';
+        btn.style.color        = '#475569';
+        btn.style.border       = '1px solid var(--border)';
+        btn.style.boxShadow    = 'none';
+        btn.innerHTML          = loading
+          ? `<i class="fa-solid fa-spinner animate-spin mr-1"></i><span>正在比對品名，請稍候...</span>`
+          : `<span>請先掃描或輸入商品</span>`;
+      }
+    }
+
+    // ── Submit checkout ────────────────────────────────────────────────────────
+    function submitCheckout() {
+      const gasUrl = localStorage.getItem('second_inventory_gas_url');
+      if (!gasUrl || !pendingItems.length) return;
+
+      const codes = pendingItems.map(i => i.itemCode);
+      if (!confirm(`確定要將這 ${pendingItems.length} 筆商品自第二庫存區出庫嗎？\n確認後將自試算表中整列刪除。`)) return;
+
+      updateSystemStatus('正在執行出庫刪除...', 'processing');
+
+      const btn = document.getElementById('checkout-btn');
+      btn.disabled         = true;
+      btn.style.background = 'var(--surface)';
+      btn.style.color      = '#94a3b8';
+      btn.style.border     = '1px solid var(--border)';
+      btn.style.boxShadow  = 'none';
+      btn.innerHTML        = `<i class="fa-solid fa-spinner animate-spin"></i><span>正在扣庫存，請勿關閉視窗...</span>`;
+
+      fetch(gasUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: JSON.stringify({ action: 'checkout', itemCodes: codes })
+      })
+      .then(r => r.json())
+      .then(data => {
+        if (data.status === 'success') {
+          playSound('checkout');
+          showToast(`出庫成功！${data.details}`, 'success');
+          pendingItems = [];
+          renderPendingList();
+          updateSystemStatus('出庫完成', 'success');
+          fetchInventoryCache();
+        } else {
+          playSound('error');
+          alert('出庫失敗：' + data.message);
+          updateSystemStatus('出庫異常', 'error');
+          updateCheckoutButton();
+        }
+      })
+      .catch(() => {
+        playSound('error');
+        alert('出庫送出失敗，請檢查網路連線後再試一次！');
+        updateSystemStatus('連線異常', 'error');
+        updateCheckoutButton();
+      });
+    }
+
+    // ── Global Toast ───────────────────────────────────────────────────────────
+    function showToast(message, type = 'success') {
+      document.querySelectorAll('.app-toast').forEach(t => t.remove());
+      const el = document.createElement('div');
+      const ok = type === 'success';
+      el.className = 'app-toast fixed bottom-24 left-1/2 -translate-x-1/2 px-4 py-3 rounded-2xl text-xs font-semibold shadow-2xl z-50 transition-opacity duration-500';
+      el.style.background    = ok ? 'rgba(16,185,129,0.92)' : 'rgba(239,68,68,0.92)';
+      el.style.color         = '#fff';
+      el.style.backdropFilter= 'blur(8px)';
+      el.style.border        = ok ? '1px solid rgba(52,211,153,0.3)' : '1px solid rgba(239,68,68,0.3)';
+      el.innerHTML = `<div class="flex items-center gap-2">
+        <i class="fa-solid ${ok ? 'fa-circle-check' : 'fa-triangle-exclamation'}"></i>
+        <span>${message}</span>
+      </div>`;
+      document.body.appendChild(el);
+      setTimeout(() => {
+        el.style.opacity = '0';
+        setTimeout(() => el.remove(), 500);
+      }, 3000);
+    }
+  </script>
+</body>
+</html>
